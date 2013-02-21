@@ -19,10 +19,12 @@ from models import Payment, Preapproval
 import api
 import logging
 import settings
+from django.http import HttpResponseRedirect
+from signals import ipn_confirmed, ipn_refunded
 
 logger = logging.getLogger(__name__)
 
-@login_required
+#@login_required
 @transaction.autocommit
 def payment_cancel(request, payment_id, payment_secret_uuid, template="paypaladaptive/cancel.html"):
     '''
@@ -43,11 +45,12 @@ def payment_cancel(request, payment_id, payment_secret_uuid, template="paypalada
 
     context = RequestContext(request)
     template_vars = {"is_embedded": settings.USE_EMBEDDED}
-        
-    return render_to_response(template, template_vars, context)
+    
+    return HttpResponseRedirect(payment.cancel_redirect_url)
+    #return render_to_response(template, template_vars, context)
 
 
-@login_required
+#@login_required
 @transaction.autocommit
 def payment_return(request, payment_id, payment_secret_uuid, template="paypaladaptive/return.html"):
     '''
@@ -59,7 +62,7 @@ def payment_return(request, payment_id, payment_secret_uuid, template="paypalada
         payment = Payment.objects.get(id=payment_id, secret_uuid=payment_secret_uuid)
     except ObjectDoesNotExist:
         raise Http404
-    
+    '''
     if request.user != payment.purchaser:
         return HttpResponseForbidden("Unauthorized")
     
@@ -85,8 +88,10 @@ def payment_return(request, payment_id, payment_secret_uuid, template="paypalada
     
     context = RequestContext(request)
     template_vars = {"is_embedded": settings.USE_EMBEDDED}
-        
     return render_to_response(template, template_vars, context)
+    '''
+    
+    return HttpResponseRedirect(payment.return_redirect_url)
 
 
 @login_required
@@ -170,7 +175,7 @@ def payment_ipn(request, payment_id, payment_secret_uuid):
     except IpnError, e:
         logger.warning("PayPal IPN verify failed: %s" % e)
         logger.debug("Request was: %s" % request)
-        return HttpResponseBadRequest('verify failed')
+        return HttpResponse('verify failed', status=200)
          
     try:
         payment = Payment.objects.get(id=payment_id)
@@ -182,7 +187,7 @@ def payment_ipn(request, payment_id, payment_secret_uuid):
         payment.status = 'error'
         payment.status_detail = 'IPN secret "%s" did not match' % payment_secret_uuid
         payment.save()
-        return HttpResponseBadRequest('secret mismatch')
+        return HttpResponse('secret mismatch', status=200)
     
     # Type of IPN?
     if ipn.type == api.IPN_TYPE_PAYMENT:
@@ -196,9 +201,8 @@ def payment_ipn(request, payment_id, payment_secret_uuid):
             payment.status = 'completed'
 
     elif ipn.type == api.IPN_TYPE_ADJUSTMENT:
-        # TODO:
-        logger.error('IPN adjustment request is not implemented!')
-        raise NotImplementedError
+        payment.status = 'refunded'
+        
     elif ipn.type == api.IPN_TYPE_PREAPPROVAL:
         # TODO:
         logger.error('IPN preapproval request is not implemented!')
@@ -206,5 +210,11 @@ def payment_ipn(request, payment_id, payment_secret_uuid):
 
     payment.save()
     
+    if payment.status == 'completed':
+        logger.debug("Sending Payment Completed Signal")
+        ipn_confirmed.send(sender=None, payment=payment)
+    elif payment.status == 'refunded':
+        ipn_refunded.send(sender=None, payment=payment)
+    
     # Ok, no content
-    return HttpResponse(status=204)
+    return HttpResponse('Received.', status=200)

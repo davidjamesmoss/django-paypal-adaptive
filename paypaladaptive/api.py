@@ -118,7 +118,7 @@ class Pay(object):
     Models the Pay API operation
     '''
     def __init__(self, amount, return_url, cancel_url, remote_address, 
-                 secondary_receiver=None, ipn_url=None, preapproval_key=None):
+                 recipient_account, commission_receiver=None, ipn_url=None, preapproval_key=None, commission_amount=0):
         
         if not amount or not isinstance(amount, Money) or amount <= Money('0.00', amount.currency):
             raise ValueError("amount must be a positive instance of Money")
@@ -134,18 +134,17 @@ class Pay(object):
             'requestEnvelope': {'errorLanguage': 'en_US'}, # It appears no other languages are supported
         }
 
-        if not secondary_receiver:
+        if not commission_receiver or commission_amount.amount <= 0:
             # simple payment
-            data['receiverList'] = {'receiver': [{'email': settings.PAYPAL_EMAIL, 
+            data['receiverList'] = {'receiver': [{'email': recipient_account, 
                                                   'amount': unicode(amount.amount)}]}
         else:
-            # chained TODO: don't hardcode this
-            commission = 16 % amount
-            data['receiverList'] = {'receiver': [{'email': settings.PAYPAL_EMAIL, 
+            data['feesPayer'] = 'PRIMARYRECEIVER'
+            data['receiverList'] = {'receiver': [{'email': recipient_account, 
                                                   'amount': unicode(amount.amount), 
                                                   'primary': 'true'}, 
-                                                 {'email': secondary_receiver, 
-                                                  'amount': unicode((amount - commission).amount),
+                                                 {'email': commission_receiver, 
+                                                  'amount': unicode(commission_amount.amount),
                                                   'primary': 'false'}]}
 
         if ipn_url:
@@ -384,7 +383,8 @@ class IPN(object):
         
         if self.action_type and self.action_type not in [IPN_ACTION_TYPE_PAY, IPN_ACTION_TYPE_CREATE]:
             raise IpnError("unknown action type: %s" % self.action_type)
-
+		
+		
     @classmethod
     def process_int(cls, int_str):
         '''

@@ -32,3 +32,6 @@ USE_CHAIN = getattr(settings, 'PAYPAL_USE_CHAIN', False)
 USE_IPN = getattr(settings, 'PAYPAL_USE_IPN', True)
 USE_EMBEDDED = getattr(settings, 'PAYPAL_USE_EMBEDDED', True)
 SHIPPING = getattr(settings, 'PAYPAL_USE_SHIPPING', False)
+
+COMMISSION_EMAIL = getattr(settings, 'PAYPAL_COMMISSION_EMAIL', False)
+

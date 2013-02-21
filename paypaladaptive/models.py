@@ -72,7 +72,11 @@ class Payment(PaypalAdaptive):
     transaction_id = models.CharField(_(u'paypal transaction ID'), max_length=128, blank=True, null=True)
     status = models.CharField(_(u'status'), max_length=10, choices=STATUS_CHOICES, default='new')
     status_detail = models.CharField(_(u'detailed status'), max_length=2048)
-
+    commission_amount = MoneyField(_(u'commission amount'), max_digits=6, decimal_places=2)
+    cancel_redirect_url = models.CharField(max_length=255)
+    return_redirect_url = models.CharField(max_length=255)
+    recipient_account = models.CharField(_(u'recipient PayPal account email'), max_length=255)
+	
     @transaction.autocommit
     def process(self, request):
         self.save()
@@ -83,18 +87,21 @@ class Payment(PaypalAdaptive):
                                                          kwargs={'payment_id': self.id, 
                                                                  'payment_secret_uuid': self.secret_uuid}))
 
-        seller_paypal_email = None
+        
         if settings.USE_CHAIN:
-            seller_paypal_email = self.owner.email if self.owner else None
-
+            commission_email = settings.COMMISSION_EMAIL
+        else:
+            commission_email = None
+        
         return_url = request.build_absolute_uri(reverse('paypal-adaptive-return', 
                                                          kwargs={'payment_id': self.id,
                                                                  'payment_secret_uuid': self.secret_uuid}))
         cancel_url = request.build_absolute_uri(reverse('paypal-adaptive-cancel', 
-                                                         kwargs={'payment_id': self.id}))
-                     
+                                                         kwargs={'payment_id': self.id,
+                                                                 'payment_secret_uuid': self.secret_uuid}))
+        
         pay = api.Pay(self.amount, return_url, cancel_url, request.META['REMOTE_ADDR'],
-                      seller_paypal_email, ipn_url)
+                      self.recipient_account, commission_email, ipn_url, None, self.commission_amount)
     
         self.debug_request = pay.raw_request
         self.debug_response = pay.raw_response
